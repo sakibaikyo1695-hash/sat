@@ -1,10 +1,10 @@
-// Offline support for app shell + map tiles (normal + satellite)
+// Offline support for app shell + map tiles (OSM and Satellite)
 // Tiles you looked at preflight remain available in the air.
 
 const VERSION = 'v2';
 const APP_CACHE = `app-${VERSION}`;
-const TILE_CACHE = `tiles-${VERSION}`;
-const SATELLITE_CACHE = `satellite-${VERSION}`;
+const OSM_TILE_CACHE = `osm-tiles-${VERSION}`;
+const SAT_TILE_CACHE = `sat-tiles-${VERSION}`;
 const APP_ASSETS = [
   './',
   './index.html',
@@ -14,7 +14,6 @@ const APP_ASSETS = [
 
 // Keep tile caches from growing forever
 const MAX_TILE_ENTRIES = 2000;
-const MAX_SATELLITE_ENTRIES = 800; // Smaller because satellite tiles are larger
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -27,7 +26,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
     await Promise.all(keys.map(k => {
-      if (k !== APP_CACHE && k !== TILE_CACHE && k !== SATELLITE_CACHE) {
+      if (k !== APP_CACHE && k !== OSM_TILE_CACHE && k !== SAT_TILE_CACHE) {
         return caches.delete(k);
       }
     }));
@@ -75,11 +74,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // OSM tiles (normal map)
+  // OSM tiles (cache-as-you-go)
   const isOSMTile = /https:\/\/[abc]\.tile\.openstreetmap\.org\/\d+\/\d+\/\d+\.png/.test(req.url);
   if (isOSMTile) {
     event.respondWith((async () => {
-      const cache = await caches.open(TILE_CACHE);
+      const cache = await caches.open(OSM_TILE_CACHE);
       const cached = await cache.match(req);
       if (cached) return cached;
       try {
@@ -94,17 +93,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Esri Satellite tiles
+  // Satellite tiles (ArcGIS/Esri) - cache-as-you-go
   const isSatelliteTile = /https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery\/MapServer\/tile\/\d+\/\d+\/\d+/.test(req.url);
   if (isSatelliteTile) {
     event.respondWith((async () => {
-      const cache = await caches.open(SATELLITE_CACHE);
+      const cache = await caches.open(SAT_TILE_CACHE);
       const cached = await cache.match(req);
       if (cached) return cached;
       try {
         const net = await fetch(req, { mode: 'cors', credentials: 'omit' });
         await cache.put(req, net.clone());
-        trimCache(cache, MAX_SATELLITE_ENTRIES);
+        trimCache(cache, MAX_TILE_ENTRIES);
         return net;
       } catch {
         return Response.error();
@@ -115,8 +114,9 @@ self.addEventListener('fetch', (event) => {
 
   // Default
   event.respondWith((async () => {
-    try { return await fetch(req); }
-    catch {
+    try { 
+      return await fetch(req); 
+    } catch {
       const cache = await caches.open(APP_CACHE);
       return (await cache.match(req)) || Response.error();
     }
@@ -127,6 +127,8 @@ async function trimCache(cache, maxItems) {
   const keys = await cache.keys();
   const extra = keys.length - maxItems;
   if (extra > 0) {
-    for (let i = 0; i < extra; i++) await cache.delete(keys[i]);
+    for (let i = 0; i < extra; i++) {
+      await cache.delete(keys[i]);
+    }
   }
 }
